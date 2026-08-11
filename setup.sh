@@ -255,8 +255,8 @@ step8_download_models() {
 
     # ---------- 8.1 下载 SoulX-LiveAct 主模型 ----------
     LIVEACT_DIR="${MODEL_DIR}/LiveAct"
-    if [ -d "${LIVEACT_DIR}" ] && [ "$(ls -A ${LIVEACT_DIR} 2>/dev/null)" ]; then
-        log_info "SoulX-LiveAct 模型已存在，跳过下载: ${LIVEACT_DIR}"
+    if is_model_complete "${LIVEACT_DIR}"; then
+        log_info "SoulX-LiveAct 模型已完整，跳过下载: ${LIVEACT_DIR}"
     else
         log_info "下载 SoulX-LiveAct 主模型..."
         mkdir -p ${LIVEACT_DIR}
@@ -266,8 +266,8 @@ step8_download_models() {
 
     # ---------- 8.2 下载 chinese-wav2vec2-base ----------
     WAV2VEC_DIR="${MODEL_DIR}/chinese-wav2vec2-base"
-    if [ -d "${WAV2VEC_DIR}" ] && [ "$(ls -A ${WAV2VEC_DIR} 2>/dev/null)" ]; then
-        log_info "chinese-wav2vec2-base 已存在，跳过下载: ${WAV2VEC_DIR}"
+    if is_model_complete "${WAV2VEC_DIR}"; then
+        log_info "chinese-wav2vec2-base 已完整，跳过下载: ${WAV2VEC_DIR}"
     else
         log_info "下载 chinese-wav2vec2-base..."
         mkdir -p ${WAV2VEC_DIR}
@@ -284,6 +284,9 @@ download_model() {
     local model_id="$1"
     local local_dir="$2"
 
+    # 清理 .incomplete 文件, 避免干扰断点续传
+    find "${local_dir}" -name "*.incomplete" -delete 2>/dev/null || true
+
     log_info "尝试通道 1/2: ModelScope (${model_id})..."
     if MODELSCOPE_CACHE=/root/.cache/modelscope modelscope download --model ${model_id} --local_dir ${local_dir}; then
         log_info "ModelScope 下载成功"
@@ -299,6 +302,27 @@ download_model() {
 
     log_error "所有下载通道均失败: ${model_id}"
     return 1
+}
+
+# 检查模型目录是否下载完整 (无 .incomplete 文件, 且有实质内容)
+is_model_complete() {
+    local dir="$1"
+    # 目录不存在或为空
+    if [ ! -d "${dir}" ] || [ -z "$(ls -A ${dir} 2>/dev/null)" ]; then
+        return 1
+    fi
+    # 存在 .incomplete 文件, 视为未完成
+    if [ -n "$(find ${dir} -name '*.incomplete' 2>/dev/null)" ]; then
+        log_warn "检测到 .incomplete 文件, 需要重新下载: ${dir}"
+        find "${dir}" -name "*.incomplete" -delete 2>/dev/null || true
+        return 1
+    fi
+    # 检查是否有 .safetensors / .bin / .pt 等模型权重文件
+    if [ -z "$(find ${dir} -name '*.safetensors' -o -name '*.bin' -o -name '*.pt' 2>/dev/null)" ]; then
+        log_warn "未找到模型权重文件 (.safetensors/.bin/.pt), 需要重新下载: ${dir}"
+        return 1
+    fi
+    return 0
 }
 
 # ==================== 步骤 9: 验证安装 ====================
