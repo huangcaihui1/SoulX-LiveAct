@@ -20,6 +20,37 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODEL_DIR="${PROJECT_DIR}/models"
 TMP_DIR="/tmp/liveact_build"
 
+# GitHub 镜像加速 (国内访问 github 慢时使用)
+# 优先级: GHPROXY > GHGO > 直接访问
+GITHUB_MIRROR="${GITHUB_MIRROR:-https://ghproxy.com}"
+
+# 包装 git clone, 自动使用镜像
+git_clone() {
+    local url="$1"
+    local target="$2"
+    local depth="${3:-}"
+
+    # 先尝试直接 clone (如果网络好)
+    if [ -n "$depth" ]; then
+        if git clone --depth ${depth} "${url}" "${target}" 2>/dev/null; then
+            return 0
+        fi
+    else
+        if git clone "${url}" "${target}" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    # 直接失败, 使用镜像
+    local mirrored_url="${GITHUB_MIRROR}/${url}"
+    log_warn "直接 clone 失败, 尝试镜像: ${mirrored_url}"
+    if [ -n "$depth" ]; then
+        git clone --depth ${depth} "${mirrored_url}" "${target}"
+    else
+        git clone "${mirrored_url}" "${target}"
+    fi
+}
+
 # ==================== 颜色输出 ====================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -105,10 +136,10 @@ step4_install_sageattention() {
         if [ -d "SageAttention" ]; then
             log_info "SageAttention 目录已存在，更新..."
             cd SageAttention
-            git fetch --all
+            git fetch --all || log_warn "git fetch 失败, 继续使用本地版本"
         else
             log_info "克隆 SageAttention..."
-            git clone https://github.com/thu-ml/SageAttention.git
+            git_clone https://github.com/thu-ml/SageAttention.git SageAttention
             cd SageAttention
         fi
 
@@ -151,10 +182,10 @@ step6_install_lightx2v() {
         if [ -d "LightX2V" ]; then
             log_info "LightX2V 目录已存在，更新..."
             cd LightX2V
-            git pull
+            git pull || log_warn "git pull 失败, 继续使用本地版本"
         else
             log_info "克隆 LightX2V..."
-            git clone https://github.com/ModelTC/LightX2V.git
+            git_clone https://github.com/ModelTC/LightX2V.git LightX2V
             cd LightX2V
         fi
 
@@ -184,14 +215,14 @@ step7_install_lightx2v_kernel() {
         # 下载 CUTLASS (NVFP4 算子依赖)
         if [ ! -d "cutlass" ]; then
             log_info "克隆 CUTLASS (浅克隆)..."
-            git clone --depth 1 https://github.com/NVIDIA/cutlass.git
+            git_clone https://github.com/NVIDIA/cutlass.git cutlass 1
         fi
         CUTLASS_PATH="${TMP_DIR}/cutlass"
 
         # 确保 LightX2V 已克隆
         if [ ! -d "LightX2V" ]; then
             log_info "克隆 LightX2V..."
-            git clone https://github.com/ModelTC/LightX2V.git
+            git_clone https://github.com/ModelTC/LightX2V.git LightX2V
         fi
 
         cd LightX2V/lightx2v_kernel
