@@ -251,16 +251,16 @@ step8_download_models() {
     mkdir -p ${MODEL_DIR}
 
     # 安装下载工具
-    pip install modelscope huggingface_hub
+    pip install modelscope huggingface_hub aria2
 
     # ---------- 8.1 下载 SoulX-LiveAct 主模型 ----------
     LIVEACT_DIR="${MODEL_DIR}/LiveAct"
     if [ -d "${LIVEACT_DIR}" ] && [ "$(ls -A ${LIVEACT_DIR} 2>/dev/null)" ]; then
         log_info "SoulX-LiveAct 模型已存在，跳过下载: ${LIVEACT_DIR}"
     else
-        log_info "下载 SoulX-LiveAct 主模型 (从 ModelScope)..."
+        log_info "下载 SoulX-LiveAct 主模型..."
         mkdir -p ${LIVEACT_DIR}
-        modelscope download --model Soul-AILab/LiveAct --local_dir ${LIVEACT_DIR}
+        download_model "Soul-AILab/LiveAct" "${LIVEACT_DIR}"
         log_info "SoulX-LiveAct 模型下载完成: ${LIVEACT_DIR}"
     fi
 
@@ -271,20 +271,34 @@ step8_download_models() {
     else
         log_info "下载 chinese-wav2vec2-base..."
         mkdir -p ${WAV2VEC_DIR}
-
-        # 优先尝试 ModelScope
-        if modelscope download --model TencentGameMate/chinese-wav2vec2-base --local_dir ${WAV2VEC_DIR} 2>/dev/null; then
-            log_info "chinese-wav2vec2-base 下载完成 (ModelScope): ${WAV2VEC_DIR}"
-        else
-            log_warn "ModelScope 下载失败，尝试 HuggingFace 镜像..."
-            export HF_ENDPOINT=https://hf-mirror.com
-            huggingface-cli download TencentGameMate/chinese-wav2vec2-base --local-dir ${WAV2VEC_DIR}
-            log_info "chinese-wav2vec2-base 下载完成 (HF镜像): ${WAV2VEC_DIR}"
-        fi
+        download_model "TencentGameMate/chinese-wav2vec2-base" "${WAV2VEC_DIR}"
+        log_info "chinese-wav2vec2-base 下载完成: ${WAV2VEC_DIR}"
     fi
 
     log_info "模型目录结构:"
     ls -la ${MODEL_DIR}
+}
+
+# 统一的模型下载函数: 优先 ModelScope, 其次 HF 镜像, 可选 aria2 多线程
+download_model() {
+    local model_id="$1"
+    local local_dir="$2"
+
+    log_info "尝试通道 1/2: ModelScope (${model_id})..."
+    if MODELSCOPE_CACHE=/root/.cache/modelscope modelscope download --model ${model_id} --local_dir ${local_dir}; then
+        log_info "ModelScope 下载成功"
+        return 0
+    fi
+
+    log_warn "ModelScope 失败, 尝试通道 2/2: HuggingFace 镜像 (${model_id})..."
+    export HF_ENDPOINT=https://hf-mirror.com
+    if huggingface-cli download ${model_id} --local-dir ${local_dir} --resume-download; then
+        log_info "HuggingFace 镜像下载成功"
+        return 0
+    fi
+
+    log_error "所有下载通道均失败: ${model_id}"
+    return 1
 }
 
 # ==================== 步骤 9: 验证安装 ====================
